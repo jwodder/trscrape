@@ -1,5 +1,3 @@
-use crate::util::{PacketError, TryFromBuf};
-use bytes::{Buf, Bytes};
 use data_encoding::{DecodeError, HEXLOWER_PERMISSIVE};
 use std::borrow::Cow;
 use std::fmt;
@@ -45,12 +43,6 @@ impl std::str::FromStr for InfoHash {
     }
 }
 
-impl From<&[u8; 20]> for InfoHash {
-    fn from(value: &[u8; 20]) -> InfoHash {
-        InfoHash(*value)
-    }
-}
-
 impl TryFrom<&[u8]> for InfoHash {
     type Error = InfoHashError;
 
@@ -69,18 +61,6 @@ impl TryFrom<Vec<u8>> for InfoHash {
         match bs.try_into() {
             Ok(barray) => Ok(InfoHash(barray)),
             Err(bs) => Err(InfoHashError::InvalidLength(bs.len())),
-        }
-    }
-}
-
-impl TryFromBuf for InfoHash {
-    fn try_from_buf(buf: &mut Bytes) -> Result<InfoHash, PacketError> {
-        if buf.len() >= InfoHash::LENGTH {
-            let mut data = [0u8; InfoHash::LENGTH];
-            buf.copy_to_slice(&mut data);
-            Ok(InfoHash(data))
-        } else {
-            Err(PacketError::Short)
         }
     }
 }
