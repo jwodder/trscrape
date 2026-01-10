@@ -1,6 +1,5 @@
 use bendy::decoding::{Decoder, FromBencode};
 use bytes::{Buf, Bytes};
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddrV4, SocketAddrV6};
 use thiserror::Error;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -55,29 +54,8 @@ macro_rules! impl_tryfrombuf {
     };
 }
 
-impl_tryfrombuf!(u8, 1, buf, buf.get_u8());
-impl_tryfrombuf!(u16, 2, buf, buf.get_u16());
 impl_tryfrombuf!(u32, 4, buf, buf.get_u32());
-impl_tryfrombuf!(i32, 4, buf, buf.get_i32());
 impl_tryfrombuf!(u64, 8, buf, buf.get_u64());
-impl_tryfrombuf!(Ipv4Addr, 4, buf, buf.get_u32().into());
-impl_tryfrombuf!(Ipv6Addr, 16, buf, buf.get_u128().into());
-
-impl TryFromBuf for SocketAddrV4 {
-    fn try_from_buf(buf: &mut Bytes) -> Result<Self, PacketError> {
-        let ip = Ipv4Addr::try_from_buf(buf)?;
-        let port = u16::try_from_buf(buf)?;
-        Ok(SocketAddrV4::new(ip, port))
-    }
-}
-
-impl TryFromBuf for SocketAddrV6 {
-    fn try_from_buf(buf: &mut Bytes) -> Result<Self, PacketError> {
-        let ip = Ipv6Addr::try_from_buf(buf)?;
-        let port = u16::try_from_buf(buf)?;
-        Ok(SocketAddrV6::new(ip, port, 0, 0))
-    }
-}
 
 #[derive(Copy, Clone, Debug, Error, Eq, PartialEq)]
 pub(crate) enum PacketError {
@@ -114,22 +92,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_try_get_u8() {
-        let mut buf = TryBytes::from(b"abc".as_slice());
-        assert_eq!(buf.try_get::<u8>(), Ok(0x61));
-        assert_eq!(buf.try_get::<u8>(), Ok(0x62));
-        assert_eq!(buf.try_get::<u8>(), Ok(0x63));
-        assert_eq!(buf.try_get::<u8>(), Err(PacketError::Short));
-    }
-
-    #[test]
-    fn test_try_get_u16() {
-        let mut buf = TryBytes::from(b"abc".as_slice());
-        assert_eq!(buf.try_get::<u16>(), Ok(0x6162));
-        assert_eq!(buf.try_get::<u16>(), Err(PacketError::Short));
-    }
-
-    #[test]
     fn test_try_get_u32() {
         let mut buf = TryBytes::from(b"0123abc".as_slice());
         assert_eq!(buf.try_get::<u32>(), Ok(0x30313233));
@@ -137,60 +99,9 @@ mod tests {
     }
 
     #[test]
-    fn test_try_get_i32() {
-        let mut buf = TryBytes::from(b"\x80123abc".as_slice());
-        assert_eq!(buf.try_get::<i32>(), Ok(-2144259533));
-        assert_eq!(buf.try_get::<i32>(), Err(PacketError::Short));
-    }
-
-    #[test]
     fn test_try_get_u64() {
         let mut buf = TryBytes::from(b"01234567abcde".as_slice());
         assert_eq!(buf.try_get::<u64>(), Ok(0x3031323334353637));
         assert_eq!(buf.try_get::<u64>(), Err(PacketError::Short));
-    }
-
-    #[test]
-    fn test_try_get_ipv4addr() {
-        let mut buf = TryBytes::from(b"0123abc".as_slice());
-        assert_eq!(
-            buf.try_get::<Ipv4Addr>(),
-            Ok(Ipv4Addr::new(0x30, 0x31, 0x32, 0x33))
-        );
-        assert_eq!(buf.try_get::<Ipv4Addr>(), Err(PacketError::Short));
-    }
-
-    #[test]
-    fn test_try_get_ipv6addr() {
-        let mut buf = TryBytes::from(b"iiiiiiiiiiiiiiii000000000".as_slice());
-        assert_eq!(
-            buf.try_get::<Ipv6Addr>(),
-            Ok("6969:6969:6969:6969:6969:6969:6969:6969"
-                .parse::<Ipv6Addr>()
-                .unwrap())
-        );
-        assert_eq!(buf.try_get::<Ipv6Addr>(), Err(PacketError::Short));
-    }
-
-    #[test]
-    fn test_try_get_socketaddrv4() {
-        let mut buf = TryBytes::from(b"iiiipp0123".as_slice());
-        assert_eq!(
-            buf.try_get::<SocketAddrV4>(),
-            Ok(SocketAddrV4::new(Ipv4Addr::new(105, 105, 105, 105), 28784))
-        );
-        assert_eq!(buf.try_get::<SocketAddrV4>(), Err(PacketError::Short));
-    }
-
-    #[test]
-    fn test_try_get_socketaddrv6() {
-        let mut buf = TryBytes::from(b"iiiiiiiiiiiiiiiipp012345678".as_slice());
-        assert_eq!(
-            buf.try_get::<SocketAddrV6>(),
-            Ok("[6969:6969:6969:6969:6969:6969:6969:6969]:28784"
-                .parse::<SocketAddrV6>()
-                .unwrap())
-        );
-        assert_eq!(buf.try_get::<SocketAddrV6>(), Err(PacketError::Short));
     }
 }
