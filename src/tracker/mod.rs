@@ -21,13 +21,6 @@ pub(crate) enum Tracker {
 }
 
 impl Tracker {
-    pub(crate) fn url_string(&self) -> String {
-        match self {
-            Tracker::Http(tr) => tr.url_string(),
-            Tracker::Udp(tr) => tr.url_string(),
-        }
-    }
-
     pub(crate) async fn scrape(&self, hashes: &[InfoHash]) -> Result<ScrapeMap, TrackerError> {
         let fut = match self {
             Tracker::Http(tr) => Either::Left(tr.scrape(hashes)),

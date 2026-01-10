@@ -1,4 +1,3 @@
-#![expect(dead_code, unused_variables)]
 mod consts;
 mod infohash;
 mod tracker;

@@ -1,31 +1,7 @@
 use bendy::decoding::{Decoder, FromBencode};
 use bytes::{Buf, Bytes};
-use std::fmt;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddrV4, SocketAddrV6};
 use thiserror::Error;
-
-pub(crate) fn comma_list<T>(values: &[T]) -> CommaList<'_, T> {
-    CommaList(values)
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub(crate) struct CommaList<'a, T>(&'a [T]);
-
-impl<T: fmt::Display> fmt::Display for CommaList<'_, T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut first = true;
-        for val in self.0 {
-            if !std::mem::replace(&mut first, false) {
-                write!(f, ", ")?;
-            }
-            write!(f, "{val}")?;
-        }
-        if first {
-            write!(f, "<none>")?;
-        }
-        Ok(())
-    }
-}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct TryBytes(Bytes);
@@ -41,26 +17,6 @@ impl TryBytes {
             values.push(self.try_get()?);
         }
         Ok(values)
-    }
-
-    pub(crate) fn try_get_bytes(&mut self, len: usize) -> Result<Bytes, PacketError> {
-        if self.0.len() >= len {
-            Ok(self.0.copy_to_bytes(len))
-        } else {
-            Err(PacketError::Short)
-        }
-    }
-
-    pub(crate) fn remainder(self) -> Bytes {
-        self.0
-    }
-
-    pub(crate) fn eof(self) -> Result<(), PacketError> {
-        if self.0.has_remaining() {
-            Err(PacketError::Long)
-        } else {
-            Ok(())
-        }
     }
 
     pub(crate) fn into_string_lossy(self) -> String {
@@ -127,8 +83,6 @@ impl TryFromBuf for SocketAddrV6 {
 pub(crate) enum PacketError {
     #[error("unexpected end of packet")]
     Short,
-    #[error("packet had trailing bytes")]
-    Long,
 }
 
 // Like `FromBencode::from_bencode()`, but it checks that there are no trailing
@@ -155,32 +109,9 @@ pub(crate) enum UnbencodeError {
     TrailingData,
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub(crate) struct ErrorChain<E>(pub(crate) E);
-
-impl<E: std::error::Error> fmt::Display for ErrorChain<E> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)?;
-        let mut source = self.0.source();
-        while let Some(e) = source {
-            write!(f, ": {e}")?;
-            source = e.source();
-        }
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_comma_list() {
-        assert_eq!(comma_list::<u32>(&[]).to_string(), "<none>");
-        assert_eq!(comma_list(&[42]).to_string(), "42");
-        assert_eq!(comma_list(&[42, 23]).to_string(), "42, 23");
-        assert_eq!(comma_list(&[42, 23, 17]).to_string(), "42, 23, 17");
-    }
 
     #[test]
     fn test_try_get_u8() {

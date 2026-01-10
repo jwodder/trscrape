@@ -21,10 +21,6 @@ const ERROR_ACTION: u32 = 3;
 pub(crate) struct UdpTracker(UdpUrl);
 
 impl UdpTracker {
-    pub(crate) fn url_string(&self) -> String {
-        self.0.to_string()
-    }
-
     pub(crate) async fn scrape(&self, hashes: &[InfoHash]) -> Result<ScrapeMap, TrackerError> {
         let socket = ConnectedUdpSocket::connect(&self.0.host, self.0.port).await?;
         let mut session = UdpTrackerSession::new(self, socket);
@@ -119,7 +115,7 @@ impl UdpTrackerSession {
             });
             let resp = match timeout_at(conn.expiration, self.chat(msg)).await {
                 Ok(Ok(buf)) => Response::<UdpScrapeResponse>::from_bytes(buf, |buf| {
-                    UdpScrapeResponse::from_bytes(buf, self.socket.ipv6)
+                    UdpScrapeResponse::try_from(buf)
                 })?
                 .ok()?,
                 Ok(Err(e)) => return Err(e.into()),
@@ -209,7 +205,6 @@ impl UdpTrackerSession {
 
 struct ConnectedUdpSocket {
     inner: UdpSocket,
-    ipv6: bool,
 }
 
 impl ConnectedUdpSocket {
@@ -221,9 +216,9 @@ impl ConnectedUdpSocket {
         else {
             return Err(UdpTrackerError::NoResolve);
         };
-        let (bindaddr, ipv6) = match addr {
-            SocketAddr::V4(_) => ("0.0.0.0:0", false),
-            SocketAddr::V6(_) => ("[::]:0", true),
+        let bindaddr = match addr {
+            SocketAddr::V4(_) => "0.0.0.0:0",
+            SocketAddr::V6(_) => "[::]:0",
         };
         let socket = UdpSocket::bind(bindaddr)
             .await
@@ -238,10 +233,7 @@ impl ConnectedUdpSocket {
             .connect(addr)
             .await
             .map_err(UdpTrackerError::Connect)?;
-        Ok(ConnectedUdpSocket {
-            inner: socket,
-            ipv6,
-        })
+        Ok(ConnectedUdpSocket { inner: socket })
     }
 
     async fn send(&self, msg: &Bytes) -> Result<(), UdpTrackerError> {
@@ -366,8 +358,10 @@ struct UdpScrapeResponse {
     scrapes: Vec<Scrape>,
 }
 
-impl UdpScrapeResponse {
-    fn from_bytes(buf: Bytes, ipv6: bool) -> Result<Self, UdpTrackerError> {
+impl TryFrom<Bytes> for UdpScrapeResponse {
+    type Error = UdpTrackerError;
+
+    fn try_from(buf: Bytes) -> Result<Self, UdpTrackerError> {
         let mut buf = TryBytes::from(buf);
         let action = buf.try_get::<u32>()?;
         if action != SCRAPE_ACTION {

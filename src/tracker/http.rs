@@ -21,10 +21,6 @@ static USER_AGENT: &str = concat!(
 pub(crate) struct HttpTracker(Url);
 
 impl HttpTracker {
-    pub(crate) fn url_string(&self) -> String {
-        self.0.to_string()
-    }
-
     pub(crate) async fn scrape(&self, hashes: &[InfoHash]) -> Result<ScrapeMap, TrackerError> {
         let client = Client::builder()
             .user_agent(USER_AGENT)
