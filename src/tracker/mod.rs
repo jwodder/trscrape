@@ -6,12 +6,12 @@ use crate::consts::TRACKER_TIMEOUT;
 use crate::infohash::InfoHash;
 use crate::util::{PacketError, TryFromBuf};
 use bytes::Bytes;
+use either::Either;
 use std::collections::HashMap;
 use std::fmt;
 use std::str::FromStr;
 use thiserror::Error;
 use tokio::time::timeout;
-use tokio_util::either::Either;
 use url::Url;
 
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -16,13 +16,13 @@ bendy = "0.6.1"
 bytes = "1.11.0"
 clap = { version = "4.5.54", default-features = false, features = ["derive", "error-context", "help", "std", "suggestions", "usage", "wrap_help"] }
 data-encoding = "2.10.0"
+either = "1.15.0"
 futures-util = { version = "0.3.31", default-features = false, features = ["sink"] }
 log = "0.4.29"
 rand = "0.9.2"
 reqwest = "0.13.1"
 thiserror = "2.0.17"
-tokio = { version = "1.49.0", features = ["macros", "net", "rt"] }
-tokio-util = "0.7.18"
+tokio = { version = "1.49.0", features = ["macros", "net", "rt", "time"] }
 url = "2.5.8"
 
 [dev-dependencies]
