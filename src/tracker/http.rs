@@ -1,5 +1,5 @@
 use super::{ScrapeError, ScrapeMap, TrackerUrlError};
-use crate::types::InfoHash;
+use crate::infohash::InfoHash;
 use crate::util::{UnbencodeError, decode_bencode};
 use bendy::decoding::{Error as BendyError, FromBencode, Object};
 use reqwest::Client;

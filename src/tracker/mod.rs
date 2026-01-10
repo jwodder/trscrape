@@ -2,7 +2,7 @@ pub(crate) mod http;
 pub(crate) mod udp;
 use self::http::*;
 use self::udp::*;
-use crate::types::InfoHash;
+use crate::infohash::InfoHash;
 use std::collections::HashMap;
 use std::fmt;
 use std::str::FromStr;

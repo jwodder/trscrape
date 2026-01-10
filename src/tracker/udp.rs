@@ -1,7 +1,7 @@
 #![expect(unreachable_code)]
 use super::{ScrapeError, ScrapeMap, TrackerUrlError};
 use crate::consts::UDP_PACKET_LEN;
-use crate::types::InfoHash;
+use crate::infohash::InfoHash;
 use crate::util::{PacketError, TryBytes};
 use bytes::{BufMut, Bytes, BytesMut};
 use rand::random;
