@@ -1,7 +1,5 @@
-#![expect(dead_code)]
-mod compact;
+#![expect(dead_code, unused_variables)]
 mod consts;
-mod peer;
 mod tracker;
 mod types;
 mod util;
