@@ -24,7 +24,7 @@ impl HttpTracker {
         self.0.to_string()
     }
 
-    pub(crate) async fn scrape(&self, hashes: Vec<InfoHash>) -> Result<ScrapeMap, ScrapeError> {
+    pub(crate) async fn scrape(&self, hashes: &[InfoHash]) -> Result<ScrapeMap, ScrapeError> {
         let client = Client::builder()
             .user_agent(USER_AGENT)
             .build()

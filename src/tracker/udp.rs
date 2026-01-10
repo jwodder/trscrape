@@ -26,7 +26,7 @@ impl UdpTracker {
         self.0.to_string()
     }
 
-    pub(crate) async fn scrape(&self, hashes: Vec<InfoHash>) -> Result<ScrapeMap, ScrapeError> {
+    pub(crate) async fn scrape(&self, hashes: &[InfoHash]) -> Result<ScrapeMap, ScrapeError> {
         let socket = ConnectedUdpSocket::connect(&self.0.host, self.0.port).await?;
         let mut session = UdpTrackerSession::new(self, socket);
         session.scrape(hashes).await
@@ -109,7 +109,7 @@ impl UdpTrackerSession {
         }
     }
 
-    pub(super) async fn scrape(&mut self, hashes: Vec<InfoHash>) -> Result<ScrapeMap, ScrapeError> {
+    pub(super) async fn scrape(&mut self, hashes: &[InfoHash]) -> Result<ScrapeMap, ScrapeError> {
         loop {
             let conn = self.get_connection().await?;
             let transaction_id = self.make_transaction_id();

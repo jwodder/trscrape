@@ -24,7 +24,7 @@ impl Tracker {
     }
 
     #[allow(clippy::unused_async)]
-    pub(crate) async fn scrape(&self, hashes: Vec<InfoHash>) -> Result<ScrapeMap, ScrapeError> {
+    pub(crate) async fn scrape(&self, hashes: &[InfoHash]) -> Result<ScrapeMap, ScrapeError> {
         todo!()
     }
 }
@@ -67,9 +67,9 @@ pub(crate) type ScrapeMap = HashMap<InfoHash, Scrape>;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Scrape {
-    complete: u64,
-    incomplete: u64,
-    downloaded: u64,
+    pub(crate) complete: u64,
+    pub(crate) incomplete: u64,
+    pub(crate) downloaded: u64,
 }
 
 #[derive(Debug, Error)]
