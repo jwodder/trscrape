@@ -1,5 +1,4 @@
-#![expect(unreachable_code)]
-use super::{ScrapeError, ScrapeMap, TrackerUrlError};
+use super::{Scrape, ScrapeMap, TrackerError, TrackerUrlError};
 use crate::consts::UDP_PACKET_LEN;
 use crate::infohash::InfoHash;
 use crate::util::{PacketError, TryBytes};
@@ -15,7 +14,7 @@ use url::Url;
 
 const PROTOCOL_ID: u64 = 0x41727101980;
 const CONNECT_ACTION: u32 = 0;
-const ANNOUNCE_ACTION: u32 = 1;
+const SCRAPE_ACTION: u32 = 2;
 const ERROR_ACTION: u32 = 3;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -26,7 +25,7 @@ impl UdpTracker {
         self.0.to_string()
     }
 
-    pub(crate) async fn scrape(&self, hashes: &[InfoHash]) -> Result<ScrapeMap, ScrapeError> {
+    pub(crate) async fn scrape(&self, hashes: &[InfoHash]) -> Result<ScrapeMap, TrackerError> {
         let socket = ConnectedUdpSocket::connect(&self.0.host, self.0.port).await?;
         let mut session = UdpTrackerSession::new(self, socket);
         session.scrape(hashes).await
@@ -109,19 +108,15 @@ impl UdpTrackerSession {
         }
     }
 
-    pub(super) async fn scrape(&mut self, hashes: &[InfoHash]) -> Result<ScrapeMap, ScrapeError> {
+    pub(super) async fn scrape(&mut self, hashes: &[InfoHash]) -> Result<ScrapeMap, TrackerError> {
         loop {
             let conn = self.get_connection().await?;
             let transaction_id = self.make_transaction_id();
-            let msg = todo!();
-            /*
-            let msg = Bytes::from(UdpAnnounceRequest {
+            let msg = Bytes::from(UdpScrapeRequest {
                 connection_id: conn.id,
                 transaction_id,
-                announcement: announcement.clone(),
-                urldata: self.tracker.0.urldata.clone(),
+                info_hashes: hashes,
             });
-            */
             let resp = match timeout_at(conn.expiration, self.chat(msg)).await {
                 Ok(Ok(buf)) => Response::<UdpScrapeResponse>::from_bytes(buf, |buf| {
                     UdpScrapeResponse::from_bytes(buf, self.socket.ipv6)
@@ -141,11 +136,11 @@ impl UdpTrackerSession {
                 }
                 .into());
             }
-            return Ok(resp.response);
+            return Ok(std::iter::zip(hashes.to_vec(), resp.scrapes).collect());
         }
     }
 
-    async fn get_connection(&mut self) -> Result<Connection, ScrapeError> {
+    async fn get_connection(&mut self) -> Result<Connection, TrackerError> {
         if let Some(c) = self.conn {
             if Instant::now() < c.expiration {
                 return Ok(c);
@@ -162,7 +157,7 @@ impl UdpTrackerSession {
         self.conn = None;
     }
 
-    async fn connect(&self) -> Result<Connection, ScrapeError> {
+    async fn connect(&self) -> Result<Connection, TrackerError> {
         log::trace!("Sending connection request to {}", self.tracker);
         let transaction_id = self.make_transaction_id();
         let msg = Bytes::from(UdpConnectionRequest { transaction_id });
@@ -278,10 +273,10 @@ enum Response<T> {
 }
 
 impl<T> Response<T> {
-    fn ok(self) -> Result<T, ScrapeError> {
+    fn ok(self) -> Result<T, TrackerError> {
         match self {
             Response::Success(res) => Ok(res),
-            Response::Failure(msg) => Err(ScrapeError::Failure(msg)),
+            Response::Failure(msg) => Err(TrackerError::Failure(msg)),
         }
     }
 
@@ -346,23 +341,50 @@ impl TryFrom<Bytes> for UdpConnectionResponse {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct UdpScrapeRequest; // TODO
+struct UdpScrapeRequest<'a> {
+    connection_id: u64,
+    transaction_id: u32,
+    info_hashes: &'a [InfoHash],
+}
 
-impl From<UdpScrapeRequest> for Bytes {
-    fn from(req: UdpScrapeRequest) -> Bytes {
-        todo!()
+impl From<UdpScrapeRequest<'_>> for Bytes {
+    fn from(req: UdpScrapeRequest<'_>) -> Bytes {
+        let mut buf = BytesMut::with_capacity(16 + 20 * req.info_hashes.len());
+        buf.put_u64(req.connection_id);
+        buf.put_u32(SCRAPE_ACTION);
+        buf.put_u32(req.transaction_id);
+        for ih in req.info_hashes {
+            buf.put(ih.as_bytes());
+        }
+        buf.freeze()
     }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct UdpScrapeResponse {
     transaction_id: u32,
-    response: ScrapeMap,
+    scrapes: Vec<Scrape>,
 }
 
 impl UdpScrapeResponse {
     fn from_bytes(buf: Bytes, ipv6: bool) -> Result<Self, UdpTrackerError> {
-        todo!()
+        let mut buf = TryBytes::from(buf);
+        let action = buf.try_get::<u32>()?;
+        if action != SCRAPE_ACTION {
+            return Err(UdpTrackerError::BadAction {
+                expected: SCRAPE_ACTION,
+                got: action,
+            });
+        }
+        let transaction_id = buf.try_get::<u32>()?;
+        // Despite what BEP 15 says about packets not having definite sizes, it
+        // seems the only way to extract the scrape info from a scrape response
+        // is to read all values to the end of the packet.
+        let scrapes = buf.try_get_all::<Scrape>()?;
+        Ok(UdpScrapeResponse {
+            transaction_id,
+            scrapes,
+        })
     }
 }
 

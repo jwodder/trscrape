@@ -1,8 +1,9 @@
-use super::{ScrapeError, ScrapeMap, TrackerUrlError};
+use super::{Scrape, ScrapeMap, TrackerError, TrackerUrlError};
 use crate::infohash::InfoHash;
 use crate::util::{UnbencodeError, decode_bencode};
-use bendy::decoding::{Error as BendyError, FromBencode, Object};
+use bendy::decoding::{Error as BendyError, FromBencode, Object, ResultExt};
 use reqwest::Client;
+use std::collections::HashMap;
 use std::fmt;
 use thiserror::Error;
 use url::Url;
@@ -24,13 +25,13 @@ impl HttpTracker {
         self.0.to_string()
     }
 
-    pub(crate) async fn scrape(&self, hashes: &[InfoHash]) -> Result<ScrapeMap, ScrapeError> {
+    pub(crate) async fn scrape(&self, hashes: &[InfoHash]) -> Result<ScrapeMap, TrackerError> {
         let client = Client::builder()
             .user_agent(USER_AGENT)
             .build()
             .map_err(HttpTrackerError::BuildClient)?;
         let mut url = self.0.clone();
-        // TODO: Replace "announce" in path with "scrape"
+        url.set_path(&url.path().replace("announce", "scrape"));
         url.set_fragment(None);
         for ih in hashes {
             ih.add_query_param(&mut url);
@@ -61,13 +62,15 @@ impl TryFrom<Url> for HttpTracker {
     type Error = TrackerUrlError;
 
     fn try_from(url: Url) -> Result<HttpTracker, TrackerUrlError> {
-        // TODO: Require the path to contain "announce"
         let sch = url.scheme();
         if sch != "http" && sch != "https" {
             return Err(TrackerUrlError::UnsupportedScheme(sch.into()));
         }
         if url.host().is_none() {
             return Err(TrackerUrlError::NoHost);
+        }
+        if !url.path().contains("announce") {
+            return Err(TrackerUrlError::NoAnnounce);
         }
         Ok(HttpTracker(url))
     }
@@ -80,17 +83,83 @@ enum HttpScrapeResponse {
 }
 
 impl HttpScrapeResponse {
-    fn result(self) -> Result<ScrapeMap, ScrapeError> {
+    fn result(self) -> Result<ScrapeMap, TrackerError> {
         match self {
             HttpScrapeResponse::Success(scrape) => Ok(scrape),
-            HttpScrapeResponse::Failure(msg) => Err(ScrapeError::Failure(msg)),
+            HttpScrapeResponse::Failure(msg) => Err(TrackerError::Failure(msg)),
         }
     }
 }
 
 impl FromBencode for HttpScrapeResponse {
     fn decode_bencode_object(object: Object<'_, '_>) -> Result<Self, BendyError> {
-        todo!()
+        let mut files = HashMap::new();
+        let mut failure_reason = None;
+        let mut dd = object.try_into_dictionary()?;
+        while let Some(kv) = dd.next_pair()? {
+            match kv {
+                (b"files", val) => {
+                    let mut filedict = val.try_into_dictionary().context("files")?;
+                    while let Some((k, v)) = filedict.next_pair().context("files")? {
+                        let infohash = InfoHash::try_from(k)
+                            .map_err(|e| BendyError::malformed_content(e).context("files.<key>"))?;
+                        let mut complete = None;
+                        let mut downloaded = None;
+                        let mut incomplete = None;
+                        let mut vdict = v.try_into_dictionary().context("files.<value>")?;
+                        while let Some(kv) = vdict.next_pair().context("files.<value>")? {
+                            match kv {
+                                (b"complete", val) => {
+                                    complete = Some(
+                                        u32::decode_bencode_object(val)
+                                            .context("files.*.complete")?,
+                                    );
+                                }
+                                (b"downloaded", val) => {
+                                    downloaded = Some(
+                                        u32::decode_bencode_object(val)
+                                            .context("files.*.downloaded")?,
+                                    );
+                                }
+                                (b"incomplete", val) => {
+                                    incomplete = Some(
+                                        u32::decode_bencode_object(val)
+                                            .context("files.*.incomplete")?,
+                                    );
+                                }
+                                _ => (),
+                            }
+                        }
+                        let complete = complete
+                            .ok_or_else(|| BendyError::missing_field("files.*.complete"))?;
+                        let downloaded = downloaded
+                            .ok_or_else(|| BendyError::missing_field("files.*.downloaded"))?;
+                        let incomplete = incomplete
+                            .ok_or_else(|| BendyError::missing_field("files.*.incomplete"))?;
+                        files.insert(
+                            infohash,
+                            Scrape {
+                                complete,
+                                incomplete,
+                                downloaded,
+                            },
+                        );
+                    }
+                }
+                (b"failure reason", val) => {
+                    failure_reason = Some(
+                        String::from_utf8_lossy(val.try_into_bytes().context("failure reason")?)
+                            .into_owned(),
+                    );
+                }
+                _ => (),
+            }
+        }
+        if let Some(errmsg) = failure_reason {
+            Ok(HttpScrapeResponse::Failure(errmsg))
+        } else {
+            Ok(HttpScrapeResponse::Success(files))
+        }
     }
 }
 

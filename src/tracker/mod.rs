@@ -2,11 +2,16 @@ pub(crate) mod http;
 pub(crate) mod udp;
 use self::http::*;
 use self::udp::*;
+use crate::consts::TRACKER_TIMEOUT;
 use crate::infohash::InfoHash;
+use crate::util::{PacketError, TryFromBuf};
+use bytes::Bytes;
 use std::collections::HashMap;
 use std::fmt;
 use std::str::FromStr;
 use thiserror::Error;
+use tokio::time::timeout;
+use tokio_util::either::Either;
 use url::Url;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -23,9 +28,14 @@ impl Tracker {
         }
     }
 
-    #[allow(clippy::unused_async)]
-    pub(crate) async fn scrape(&self, hashes: &[InfoHash]) -> Result<ScrapeMap, ScrapeError> {
-        todo!()
+    pub(crate) async fn scrape(&self, hashes: &[InfoHash]) -> Result<ScrapeMap, TrackerError> {
+        let fut = match self {
+            Tracker::Http(tr) => Either::Left(tr.scrape(hashes)),
+            Tracker::Udp(tr) => Either::Right(tr.scrape(hashes)),
+        };
+        timeout(TRACKER_TIMEOUT, fut)
+            .await
+            .unwrap_or(Err(TrackerError::Timeout))
     }
 }
 
@@ -59,6 +69,8 @@ pub(crate) enum TrackerUrlError {
     UnsupportedScheme(String),
     #[error("no host in tracker URL")]
     NoHost,
+    #[error("no \"announce\" string in HTTP tracker URL path")]
+    NoAnnounce,
     #[error("no port in UDP tracker URL")]
     NoUdpPort,
 }
@@ -67,13 +79,26 @@ pub(crate) type ScrapeMap = HashMap<InfoHash, Scrape>;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Scrape {
-    pub(crate) complete: u64,
-    pub(crate) incomplete: u64,
-    pub(crate) downloaded: u64,
+    pub(crate) complete: u32,
+    pub(crate) incomplete: u32,
+    pub(crate) downloaded: u32,
+}
+
+impl TryFromBuf for Scrape {
+    fn try_from_buf(buf: &mut Bytes) -> Result<Self, PacketError> {
+        let seeders = u32::try_from_buf(buf)?;
+        let completed = u32::try_from_buf(buf)?;
+        let leechers = u32::try_from_buf(buf)?;
+        Ok(Scrape {
+            complete: seeders,
+            incomplete: leechers,
+            downloaded: completed,
+        })
+    }
 }
 
 #[derive(Debug, Error)]
-pub(crate) enum ScrapeError {
+pub(crate) enum TrackerError {
     #[error("interactions with tracker did not complete in time")]
     Timeout,
     #[error("tracker replied with error message {0:?}")]

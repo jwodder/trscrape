@@ -62,6 +62,17 @@ impl From<&[u8; 20]> for InfoHash {
     }
 }
 
+impl TryFrom<&[u8]> for InfoHash {
+    type Error = InfoHashError;
+
+    fn try_from(bs: &[u8]) -> Result<InfoHash, InfoHashError> {
+        match bs.try_into() {
+            Ok(barray) => Ok(InfoHash(barray)),
+            Err(_) => Err(InfoHashError::InvalidLength(bs.len())),
+        }
+    }
+}
+
 impl TryFrom<Vec<u8>> for InfoHash {
     type Error = InfoHashError;
 
