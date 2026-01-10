@@ -30,7 +30,7 @@ impl UdpTracker {
 
 impl fmt::Display for UdpTracker {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "<Tracker {}>", self.0)
+        write!(f, "{}", self.0)
     }
 }
 
@@ -89,8 +89,8 @@ impl TryFrom<Url> for UdpUrl {
     }
 }
 
-pub(super) struct UdpTrackerSession {
-    pub(super) tracker: UdpTracker,
+struct UdpTrackerSession {
+    tracker: UdpTracker,
     socket: ConnectedUdpSocket,
     conn: Option<Connection>,
 }
@@ -104,7 +104,7 @@ impl UdpTrackerSession {
         }
     }
 
-    pub(super) async fn scrape(&mut self, hashes: &[InfoHash]) -> Result<ScrapeMap, TrackerError> {
+    async fn scrape(&mut self, hashes: &[InfoHash]) -> Result<ScrapeMap, TrackerError> {
         loop {
             let conn = self.get_connection().await?;
             let transaction_id = self.make_transaction_id();
@@ -251,7 +251,7 @@ impl ConnectedUdpSocket {
     }
 }
 
-// UDP tracker psuedo-connection (BEP 15)
+// UDP tracker pseudo-connection (BEP 15)
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 struct Connection {
     id: u64,

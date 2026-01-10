@@ -8,8 +8,6 @@ use crate::util::{PacketError, TryFromBuf};
 use bytes::Bytes;
 use either::Either;
 use std::collections::HashMap;
-use std::fmt;
-use std::str::FromStr;
 use thiserror::Error;
 use tokio::time::timeout;
 use url::Url;
@@ -32,16 +30,7 @@ impl Tracker {
     }
 }
 
-impl fmt::Display for Tracker {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Tracker::Http(http) => write!(f, "{http}"),
-            Tracker::Udp(udp) => write!(f, "{udp}"),
-        }
-    }
-}
-
-impl FromStr for Tracker {
+impl std::str::FromStr for Tracker {
     type Err = TrackerUrlError;
 
     fn from_str(s: &str) -> Result<Tracker, TrackerUrlError> {

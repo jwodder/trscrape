@@ -4,7 +4,6 @@ use crate::util::{UnbencodeError, decode_bencode};
 use bendy::decoding::{Error as BendyError, FromBencode, Object, ResultExt};
 use reqwest::Client;
 use std::collections::HashMap;
-use std::fmt;
 use thiserror::Error;
 use url::Url;
 
@@ -45,12 +44,6 @@ impl HttpTracker {
         decode_bencode::<HttpScrapeResponse>(&buf)
             .map_err(HttpTrackerError::ParseResponse)?
             .result()
-    }
-}
-
-impl fmt::Display for HttpTracker {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "<Tracker {}>", self.0)
     }
 }
 
