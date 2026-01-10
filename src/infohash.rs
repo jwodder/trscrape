@@ -1,6 +1,6 @@
 use crate::util::{PacketError, TryFromBuf};
 use bytes::{Buf, Bytes};
-use data_encoding::{BASE32, DecodeError, HEXLOWER_PERMISSIVE};
+use data_encoding::{DecodeError, HEXLOWER_PERMISSIVE};
 use std::borrow::Cow;
 use std::fmt;
 use thiserror::Error;
@@ -16,13 +16,6 @@ impl InfoHash {
         HEXLOWER_PERMISSIVE
             .decode(s.as_bytes())
             .map_err(InfoHashError::InvalidHex)?
-            .try_into()
-    }
-
-    pub(crate) fn from_base32(s: &str) -> Result<InfoHash, InfoHashError> {
-        BASE32
-            .decode(s.as_bytes())
-            .map_err(InfoHashError::InvalidBase32)?
             .try_into()
     }
 
@@ -48,11 +41,7 @@ impl std::str::FromStr for InfoHash {
     type Err = InfoHashError;
 
     fn from_str(s: &str) -> Result<InfoHash, InfoHashError> {
-        if s.len() == 32 {
-            InfoHash::from_base32(s)
-        } else {
-            InfoHash::from_hex(s)
-        }
+        InfoHash::from_hex(s)
     }
 }
 
@@ -100,8 +89,6 @@ impl TryFromBuf for InfoHash {
 pub(crate) enum InfoHashError {
     #[error("info hash is invalid hexadecimal")]
     InvalidHex(#[source] DecodeError),
-    #[error("info hash is invalid base32")]
-    InvalidBase32(#[source] DecodeError),
     #[error("info hash is {0} bytes long, expected 20")]
     InvalidLength(usize),
 }
@@ -136,21 +123,6 @@ mod tests {
         assert_eq!(
             info_hash.to_string(),
             "28c55196f57753c40aceb6fb58617e6995a7eddb"
-        );
-    }
-
-    #[test]
-    fn test_base32_info_hash() {
-        let info_hash = "XBIUOS3U6ZONDH4YDRZDLEHD4UQCIK4X"
-            .parse::<InfoHash>()
-            .unwrap();
-        assert_eq!(
-            info_hash.as_bytes(),
-            b"\xb8\x51\x47\x4b\x74\xf6\x5c\xd1\x9f\x98\x1c\x72\x35\x90\xe3\xe5\x20\x24\x2b\x97",
-        );
-        assert_eq!(
-            info_hash.to_string(),
-            "b851474b74f65cd19f981c723590e3e520242b97"
         );
     }
 
