@@ -24,10 +24,10 @@ const ERROR_ACTION: u32 = 3;
 pub(crate) struct UdpTracker(UdpUrl);
 
 impl UdpTracker {
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(name = "scrape-udp", skip_all, fields(tracker = %self.0))]
     pub(crate) async fn scrape(&self, hashes: &[InfoHash]) -> Result<ScrapeMap, TrackerError> {
         let socket = ConnectedUdpSocket::connect(&self.0.host, self.0.port).await?;
-        let mut session = UdpTrackerSession::new(self, socket);
+        let mut session = UdpTrackerSession::new(socket);
         session.scrape(hashes).await
     }
 }
@@ -94,18 +94,13 @@ impl TryFrom<Url> for UdpUrl {
 }
 
 struct UdpTrackerSession {
-    tracker: UdpTracker,
     socket: ConnectedUdpSocket,
     conn: Option<Connection>,
 }
 
 impl UdpTrackerSession {
-    fn new(tracker: &UdpTracker, socket: ConnectedUdpSocket) -> Self {
-        UdpTrackerSession {
-            tracker: tracker.clone(),
-            socket,
-            conn: None,
-        }
+    fn new(socket: ConnectedUdpSocket) -> Self {
+        UdpTrackerSession { socket, conn: None }
     }
 
     async fn scrape(&mut self, hashes: &[InfoHash]) -> Result<ScrapeMap, TrackerError> {
@@ -124,7 +119,7 @@ impl UdpTrackerSession {
                 }
                 Ok(Err(e)) => return Err(e.into()),
                 Err(_) => {
-                    tracing::info!(tracker = %self.tracker, "Connection to tracker timed out; restarting");
+                    tracing::info!("Connection to tracker timed out; restarting");
                     self.reset_connection();
                     continue;
                 }
@@ -145,7 +140,7 @@ impl UdpTrackerSession {
             if Instant::now() < c.expiration {
                 return Ok(c);
             } else {
-                tracing::info!(tracker = %self.tracker, "Connection to tracker expired; will reconnect");
+                tracing::info!("Connection to tracker expired; will reconnect");
             }
         }
         let conn = self.connect().await?;
@@ -158,7 +153,7 @@ impl UdpTrackerSession {
     }
 
     async fn connect(&self) -> Result<Connection, TrackerError> {
-        tracing::info!(tracker = %self.tracker, "Sending connection request to tracker");
+        tracing::info!("Sending connection request to tracker");
         let transaction_id = self.make_transaction_id();
         let msg = Bytes::from(UdpConnectionRequest { transaction_id });
         let raw_resp = self.chat(msg).await?;
@@ -175,7 +170,7 @@ impl UdpTrackerSession {
             }
             .into());
         }
-        tracing::info!(tracker = %self.tracker, "Connected to tracker");
+        tracing::info!("Connected to tracker");
         let expiration = Instant::now() + Duration::from_secs(60);
         Ok(Connection {
             id: resp.connection_id,
@@ -191,7 +186,7 @@ impl UdpTrackerSession {
             if let Ok(r) = timeout(maxtime, self.socket.recv()).await {
                 return r;
             } else {
-                tracing::info!(tracker = %self.tracker, "Tracker did not reply in time; resending message");
+                tracing::info!("Tracker did not reply in time; resending message");
                 if n < 8 {
                     // TODO: Should this count remember timeouts from previous
                     // connections & connection attempts?
