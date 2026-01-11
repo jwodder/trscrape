@@ -83,14 +83,15 @@ impl HttpScrapeResponse {
 
 impl FromBencode for HttpScrapeResponse {
     fn decode_bencode_object(object: Object<'_, '_>) -> Result<Self, BendyError> {
-        let mut files = HashMap::new();
+        let mut files = None;
         let mut failure_reason = None;
         let mut dd = object.try_into_dictionary()?;
         while let Some(kv) = dd.next_pair()? {
             match kv {
                 (b"files", val) => {
-                    let mut filedict = val.try_into_dictionary().context("files")?;
-                    while let Some((k, v)) = filedict.next_pair().context("files")? {
+                    let mut filemap = HashMap::new();
+                    let mut fdict = val.try_into_dictionary().context("files")?;
+                    while let Some((k, v)) = fdict.next_pair().context("files")? {
                         let infohash = InfoHash::try_from(k)
                             .map_err(|e| BendyError::malformed_content(e).context("files.<key>"))?;
                         let mut complete = None;
@@ -126,7 +127,7 @@ impl FromBencode for HttpScrapeResponse {
                             .ok_or_else(|| BendyError::missing_field("files.*.downloaded"))?;
                         let incomplete = incomplete
                             .ok_or_else(|| BendyError::missing_field("files.*.incomplete"))?;
-                        files.insert(
+                        filemap.insert(
                             infohash,
                             Scrape {
                                 complete,
@@ -135,6 +136,7 @@ impl FromBencode for HttpScrapeResponse {
                             },
                         );
                     }
+                    files = Some(filemap);
                 }
                 (b"failure reason", val) => {
                     failure_reason = Some(
@@ -145,10 +147,10 @@ impl FromBencode for HttpScrapeResponse {
                 _ => (),
             }
         }
-        if let Some(errmsg) = failure_reason {
-            Ok(HttpScrapeResponse::Failure(errmsg))
-        } else {
-            Ok(HttpScrapeResponse::Success(files))
+        match (files, failure_reason) {
+            (Some(files), None) => Ok(HttpScrapeResponse::Success(files)),
+            (_, Some(fr)) => Ok(HttpScrapeResponse::Failure(fr)),
+            (None, None) => Err(BendyError::missing_field("files")),
         }
     }
 }
