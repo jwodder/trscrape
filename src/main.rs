@@ -11,16 +11,25 @@ use std::time::Duration;
 use tracing::Level;
 use tracing_subscriber::{filter::Targets, fmt::time::OffsetTime, prelude::*};
 
+/// Scrape BitTorrent trackers for swarm statistics
+///
+/// Visit <https://github.com/jwodder/trscrape> for more information.
 #[derive(Clone, Debug, Eq, Parser, PartialEq)]
 struct Arguments {
-    #[arg(short, long, default_value_t = 30)]
+    /// Wait at most INT seconds for the tracker to respond to our scrape
+    /// request
+    #[arg(short, long, default_value_t = 30, value_name = "INT")]
     timeout: u64,
 
+    /// Emit logs of network activity
     #[arg(long)]
     trace: bool,
 
+    /// The URL of an HTTP or UDP tracker to scrape
     tracker: Tracker,
 
+    /// Up to 50 info hashes of torrents to scrape, given as 40-character hex
+    /// strings
     #[arg(num_args = 0..=50)]
     hashes: Vec<InfoHash>,
 }
