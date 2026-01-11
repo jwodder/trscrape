@@ -420,8 +420,44 @@ pub(crate) enum UdpTrackerError {
 mod tests {
     use super::*;
 
+    mod udp_url {
+        use super::*;
+
+        #[test]
+        fn from_url() {
+            let url = "udp://tracker.opentrackr.org:1337/announce"
+                .parse::<Url>()
+                .unwrap();
+            let uu = UdpUrl::try_from(url).unwrap();
+            assert_eq!(
+                uu,
+                UdpUrl {
+                    host: "tracker.opentrackr.org".into(),
+                    port: 1337,
+                    urldata: "/announce".into(),
+                }
+            );
+            assert_eq!(uu.to_string(), "udp://tracker.opentrackr.org:1337/announce");
+        }
+
+        #[test]
+        fn from_url_no_urldata() {
+            let url = "udp://tracker.opentrackr.org:1337".parse::<Url>().unwrap();
+            let uu = UdpUrl::try_from(url).unwrap();
+            assert_eq!(
+                uu,
+                UdpUrl {
+                    host: "tracker.opentrackr.org".into(),
+                    port: 1337,
+                    urldata: String::new(),
+                }
+            );
+            assert_eq!(uu.to_string(), "udp://tracker.opentrackr.org:1337");
+        }
+    }
+
     #[test]
-    fn test_make_connection_request() {
+    fn build_connection_request() {
         let req = UdpConnectionRequest {
             transaction_id: 0x5C310D73,
         };
@@ -433,7 +469,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_connection_response() {
+    fn parse_connection_response() {
         let buf = Bytes::from(b"\x00\x00\x00\x00\\1\rs\\\xcb\xdf\xdb\x15|%\xba".as_slice());
         let res = UdpConnectionResponse::try_from(buf).unwrap();
         assert_eq!(res.transaction_id, 0x5C310D73);
@@ -441,34 +477,45 @@ mod tests {
     }
 
     #[test]
-    fn test_udp_url_from_url() {
-        let url = "udp://tracker.opentrackr.org:1337/announce"
-            .parse::<Url>()
-            .unwrap();
-        let uu = UdpUrl::try_from(url).unwrap();
-        assert_eq!(
-            uu,
-            UdpUrl {
-                host: "tracker.opentrackr.org".into(),
-                port: 1337,
-                urldata: "/announce".into(),
-            }
-        );
-        assert_eq!(uu.to_string(), "udp://tracker.opentrackr.org:1337/announce");
+    fn build_scrape_request() {
+        let info_hashes = vec![
+            "28c55196f57753c40aceb6fb58617e6995a7eddb"
+                .parse::<InfoHash>()
+                .unwrap(),
+            "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+                .parse::<InfoHash>()
+                .unwrap(),
+        ];
+        let req = UdpScrapeRequest {
+            connection_id: 0xFAEAA63F0C55F0BC,
+            transaction_id: 0x7F541CC1,
+            info_hashes: info_hashes.as_slice(),
+        };
+        let buf = Bytes::from(req);
+        assert_eq!(buf, b"\xFA\xEA\xA6\x3F\x0C\x55\xF0\xBC\0\0\0\x02\x7F\x54\x1C\xC1\x28\xc5\x51\x96\xf5\x77\x53\xc4\x0a\xce\xb6\xfb\x58\x61\x7e\x69\x95\xa7\xed\xdb\xda\x39\xa3\xee\x5e\x6b\x4b\x0d\x32\x55\xbf\xef\x95\x60\x18\x90\xaf\xd8\x07\x09".as_slice());
     }
 
     #[test]
-    fn test_udp_url_from_url_no_urldata() {
-        let url = "udp://tracker.opentrackr.org:1337".parse::<Url>().unwrap();
-        let uu = UdpUrl::try_from(url).unwrap();
+    fn parse_scrape_response() {
+        let buf = Bytes::from(b"\0\0\0\x02\x7F\x54\x1C\xC1\0\0\0\x0A\0\0\0\x20\0\0\0\0\0\0\0\x69\0\0\x05\x39\0\0\0\x2A".as_slice());
+        let res = UdpScrapeResponse::try_from(buf).unwrap();
         assert_eq!(
-            uu,
-            UdpUrl {
-                host: "tracker.opentrackr.org".into(),
-                port: 1337,
-                urldata: String::new(),
+            res,
+            UdpScrapeResponse {
+                transaction_id: 0x7F541CC1,
+                scrapes: vec![
+                    Scrape {
+                        complete: 10,
+                        incomplete: 0,
+                        downloaded: 32
+                    },
+                    Scrape {
+                        complete: 105,
+                        incomplete: 42,
+                        downloaded: 1337
+                    },
+                ],
             }
         );
-        assert_eq!(uu.to_string(), "udp://tracker.opentrackr.org:1337");
     }
 }
