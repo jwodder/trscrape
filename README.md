@@ -61,3 +61,5 @@ Options
 
 - `-t <INT>`, `--timeout <INT>` — Wait at most `<INT>` seconds for the tracker
   to respond to our scrape request [default: 30]
+
+- `--trace` — Emit logs of network activity
