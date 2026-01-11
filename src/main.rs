@@ -48,7 +48,7 @@ fn main() -> ExitCode {
             {
                 ExitCode::SUCCESS
             } else {
-                let _ = writeln!(stderr().lock(), "trscrape: {e}");
+                let _ = writeln!(stderr().lock(), "trscrape: {e:?}");
                 ExitCode::FAILURE
             }
         }
