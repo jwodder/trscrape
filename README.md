@@ -29,7 +29,7 @@ latest version of `trscrape` and install it in `~/.cargo/bin` by running:
 Usage
 =====
 
-    trscrape <tracker> <infohash> ...
+    trscrape [<options>] <tracker> <infohash> ...
 
 The arguments to the `trscrape` command are a tracker URL followed by up to 50
 torrent info hashes (specified as 40-character hex strings).  `trscrape`
@@ -55,3 +55,9 @@ that hash will look like this instead:
 ```
 da39a3ee5e6b4b0d3255bfef95601890afd80709: --- not tracked ---
 ```
+
+Options
+-------
+
+- `-t <INT>`, `--timeout <INT>` — Wait at most `<INT>` seconds for the tracker
+  to respond to our scrape request [default: 30]

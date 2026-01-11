@@ -2,14 +2,11 @@ pub(crate) mod http;
 pub(crate) mod udp;
 use self::http::*;
 use self::udp::*;
-use crate::consts::TRACKER_TIMEOUT;
 use crate::infohash::InfoHash;
 use crate::util::{PacketError, TryFromBuf};
 use bytes::Bytes;
-use either::Either;
 use std::collections::HashMap;
 use thiserror::Error;
-use tokio::time::timeout;
 use url::Url;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -20,13 +17,10 @@ pub(crate) enum Tracker {
 
 impl Tracker {
     pub(crate) async fn scrape(&self, hashes: &[InfoHash]) -> Result<ScrapeMap, TrackerError> {
-        let fut = match self {
-            Tracker::Http(tr) => Either::Left(tr.scrape(hashes)),
-            Tracker::Udp(tr) => Either::Right(tr.scrape(hashes)),
-        };
-        timeout(TRACKER_TIMEOUT, fut)
-            .await
-            .unwrap_or(Err(TrackerError::Timeout))
+        match self {
+            Tracker::Http(tr) => tr.scrape(hashes).await,
+            Tracker::Udp(tr) => tr.scrape(hashes).await,
+        }
     }
 }
 
@@ -81,8 +75,6 @@ impl TryFromBuf for Scrape {
 
 #[derive(Debug, Error)]
 pub(crate) enum TrackerError {
-    #[error("interactions with tracker did not complete in time")]
-    Timeout,
     #[error("tracker replied with error message {0:?}")]
     Failure(String),
     #[error(transparent)]

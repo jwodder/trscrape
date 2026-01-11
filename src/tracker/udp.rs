@@ -1,5 +1,4 @@
 use super::{Scrape, ScrapeMap, TrackerError, TrackerUrlError};
-use crate::consts::UDP_PACKET_LEN;
 use crate::infohash::InfoHash;
 use crate::util::{PacketError, TryBytes};
 use bytes::{BufMut, Bytes, BytesMut};
@@ -11,6 +10,10 @@ use thiserror::Error;
 use tokio::net::{UdpSocket, lookup_host};
 use tokio::time::{Instant, timeout, timeout_at};
 use url::Url;
+
+/// Size of buffer for receiving incoming UDP packets.  Any packets longer than
+/// this are truncated.
+const UDP_PACKET_LEN: usize = 65535;
 
 const PROTOCOL_ID: u64 = 0x41727101980;
 const CONNECT_ACTION: u32 = 0;
