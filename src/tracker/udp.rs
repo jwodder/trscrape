@@ -69,8 +69,11 @@ impl TryFrom<Url> for UdpUrl {
         if sch != "udp" {
             return Err(TrackerUrlError::UnsupportedScheme(sch.into()));
         }
-        let Some(host) = url.host_str().map(ToOwned::to_owned) else {
-            return Err(TrackerUrlError::NoHost);
+        let host = match url.host() {
+            Some(url::Host::Domain(s)) => s.to_owned(),
+            Some(url::Host::Ipv4(ip)) => ip.to_string(),
+            Some(url::Host::Ipv6(ip)) => ip.to_string(),
+            None => return Err(TrackerUrlError::NoHost),
         };
         let Some(port) = url.port() else {
             return Err(TrackerUrlError::NoUdpPort);
@@ -447,6 +450,36 @@ mod tests {
                 }
             );
             assert_eq!(uu.to_string(), "udp://tracker.opentrackr.org:1337");
+        }
+
+        #[test]
+        fn from_url_ipv4() {
+            let url = "udp://192.168.1.2:1337/announce".parse::<Url>().unwrap();
+            let uu = UdpUrl::try_from(url).unwrap();
+            assert_eq!(
+                uu,
+                UdpUrl {
+                    host: "192.168.1.2".into(),
+                    port: 1337,
+                    urldata: "/announce".into(),
+                }
+            );
+            assert_eq!(uu.to_string(), "udp://192.168.1.2:1337/announce");
+        }
+
+        #[test]
+        fn from_url_ipv6() {
+            let url = "udp://[3fff::abcd]:1337/announce".parse::<Url>().unwrap();
+            let uu = UdpUrl::try_from(url).unwrap();
+            assert_eq!(
+                uu,
+                UdpUrl {
+                    host: "3fff::abcd".into(),
+                    port: 1337,
+                    urldata: "/announce".into(),
+                }
+            );
+            assert_eq!(uu.to_string(), "udp://[3fff::abcd]:1337/announce");
         }
     }
 
