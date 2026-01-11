@@ -5,7 +5,8 @@ use crate::infohash::InfoHash;
 use crate::tracker::Tracker;
 use anyhow::Context;
 use clap::Parser;
-use std::io::{IsTerminal, stderr};
+use std::io::{self, ErrorKind, IsTerminal, Write, stderr, stdout};
+use std::process::ExitCode;
 use std::time::Duration;
 use tracing::Level;
 use tracing_subscriber::{filter::Targets, fmt::time::OffsetTime, prelude::*};
@@ -24,14 +25,31 @@ struct Arguments {
     hashes: Vec<InfoHash>,
 }
 
+fn main() -> ExitCode {
+    let args = Arguments::parse();
+    match run(args) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            if let Some(ioerr) = e.downcast_ref::<io::Error>()
+                && ioerr.kind() == ErrorKind::BrokenPipe
+            {
+                ExitCode::SUCCESS
+            } else {
+                let _ = writeln!(stderr().lock(), "trscrape: {e}");
+                ExitCode::FAILURE
+            }
+        }
+    }
+}
+
 #[tokio::main(flavor = "current_thread")]
-async fn main() -> anyhow::Result<()> {
+async fn run(args: Arguments) -> anyhow::Result<()> {
     let Arguments {
         tracker,
         hashes,
         timeout,
         trace,
-    } = Arguments::parse();
+    } = args;
     if !hashes.is_empty() {
         if trace {
             let timer = OffsetTime::local_rfc_3339()
@@ -55,17 +73,18 @@ async fn main() -> anyhow::Result<()> {
         match tokio::time::timeout(Duration::from_secs(timeout), tracker.scrape(&hashes)).await {
             Ok(Ok(mut scrapemap)) => {
                 let mut first = true;
+                let mut out = stdout().lock();
                 for ih in hashes {
                     if !std::mem::replace(&mut first, false) {
-                        println!();
+                        writeln!(&mut out)?;
                     }
                     if let Some(s) = scrapemap.remove(&ih) {
-                        println!("{ih}:");
-                        println!("  Complete/Seeders: {}", s.complete);
-                        println!("  Incomplete/Leechers: {}", s.incomplete);
-                        println!("  Downloaded: {}", s.downloaded);
+                        writeln!(&mut out, "{ih}:")?;
+                        writeln!(&mut out, "  Complete/Seeders: {}", s.complete)?;
+                        writeln!(&mut out, "  Incomplete/Leechers: {}", s.incomplete)?;
+                        writeln!(&mut out, "  Downloaded: {}", s.downloaded)?;
                     } else {
-                        println!("{ih}: --- not tracked ---");
+                        writeln!(&mut out, "{ih}: --- not tracked ---")?;
                     }
                 }
                 Ok(())
