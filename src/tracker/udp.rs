@@ -131,7 +131,15 @@ impl UdpTrackerSession {
                 }
                 .into());
             }
-            return Ok(std::iter::zip(hashes.to_vec(), resp.scrapes).collect());
+            if hashes.len() != resp.scrapes.len() {
+                return Err(UdpTrackerError::ScrapeLenMismatch {
+                    expected: hashes.len(),
+                    got: resp.scrapes.len(),
+                }
+                .into());
+            } else {
+                return Ok(std::iter::zip(hashes.to_vec(), resp.scrapes).collect());
+            }
         }
     }
 
@@ -405,6 +413,10 @@ pub(crate) enum UdpTrackerError {
         "response from UDP tracker did not contain expected transaction ID; expected {expected:#x}, got {got:#x}"
     )]
     XactionMismatch { expected: u32, got: u32 },
+    #[error(
+        "scrape response from UDP tracker did not contain expected number of statistics; expected {expected}, got {got}"
+    )]
+    ScrapeLenMismatch { expected: usize, got: usize },
 }
 
 #[cfg(test)]
