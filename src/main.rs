@@ -2,7 +2,7 @@ mod infohash;
 mod tracker;
 mod util;
 use crate::infohash::InfoHash;
-use crate::tracker::Tracker;
+use crate::tracker::{Scrape, Tracker};
 use anyhow::Context;
 use clap::Parser;
 use std::io::{self, ErrorKind, IsTerminal, Write, stderr, stdout};
@@ -16,6 +16,10 @@ use tracing_subscriber::{filter::Targets, fmt::time::OffsetTime, prelude::*};
 /// Visit <https://github.com/jwodder/trscrape> for more information.
 #[derive(Clone, Debug, Eq, Parser, PartialEq)]
 struct Arguments {
+    /// Output JSON lines
+    #[arg(short = 'J', long)]
+    json: bool,
+
     /// Wait at most INT seconds for the tracker to respond to our scrape
     /// request
     #[arg(short, long, default_value_t = 30, value_name = "INT")]
@@ -58,6 +62,7 @@ async fn run(args: Arguments) -> anyhow::Result<()> {
         hashes,
         timeout,
         trace,
+        json,
     } = args;
     if !hashes.is_empty() {
         if trace {
@@ -81,20 +86,13 @@ async fn run(args: Arguments) -> anyhow::Result<()> {
         }
         match tokio::time::timeout(Duration::from_secs(timeout), tracker.scrape(&hashes)).await {
             Ok(Ok(mut scrapemap)) => {
-                let mut first = true;
-                let mut out = stdout().lock();
+                let mut printer = if json {
+                    Printer::json()
+                } else {
+                    Printer::text()
+                };
                 for ih in hashes {
-                    if !std::mem::replace(&mut first, false) {
-                        writeln!(&mut out)?;
-                    }
-                    if let Some(s) = scrapemap.remove(&ih) {
-                        writeln!(&mut out, "{ih}:")?;
-                        writeln!(&mut out, "  Complete/Seeders: {}", s.complete)?;
-                        writeln!(&mut out, "  Incomplete/Leechers: {}", s.incomplete)?;
-                        writeln!(&mut out, "  Downloaded: {}", s.downloaded)?;
-                    } else {
-                        writeln!(&mut out, "{ih}: --- not tracked ---")?;
-                    }
+                    printer.print(ih, scrapemap.remove(&ih))?;
                 }
                 Ok(())
             }
@@ -103,5 +101,59 @@ async fn run(args: Arguments) -> anyhow::Result<()> {
         }
     } else {
         Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Printer {
+    Text { first: bool },
+    Json,
+}
+
+impl Printer {
+    fn text() -> Printer {
+        Printer::Text { first: true }
+    }
+
+    fn json() -> Printer {
+        Printer::Json
+    }
+
+    fn print(&mut self, info_hash: InfoHash, scrape: Option<Scrape>) -> io::Result<()> {
+        let mut out = stdout().lock();
+        match self {
+            Printer::Text { first } => {
+                if !std::mem::replace(first, false) {
+                    writeln!(&mut out)?;
+                }
+                if let Some(s) = scrape {
+                    writeln!(&mut out, "{info_hash}:")?;
+                    writeln!(&mut out, "  Complete/Seeders: {}", s.complete)?;
+                    writeln!(&mut out, "  Incomplete/Leechers: {}", s.incomplete)?;
+                    writeln!(&mut out, "  Downloaded: {}", s.downloaded)?;
+                } else {
+                    writeln!(&mut out, "{info_hash}: --- not tracked ---")?;
+                }
+                Ok(())
+            }
+            Printer::Json => {
+                if let Some(Scrape {
+                    complete,
+                    incomplete,
+                    downloaded,
+                }) = scrape
+                {
+                    writeln!(
+                        &mut out,
+                        r#"{{"info_hash": "{info_hash}", "scrape": {{"complete": {complete}, "incomplete": {incomplete}, "downloaded": {downloaded}}}}}"#
+                    )
+                } else {
+                    writeln!(
+                        &mut out,
+                        r#"{{"info_hash": "{info_hash}", "scrape": null}}"#
+                    )
+                }
+            }
+        }
     }
 }

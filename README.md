@@ -59,6 +59,16 @@ da39a3ee5e6b4b0d3255bfef95601890afd80709: --- not tracked ---
 Options
 -------
 
+- `-J`, `--json` — Output the scrape statistics as JSON Lines, one object/line
+  per info hash, in the following format:
+
+    ```json
+    {"info_hash": "da39a3ee5e6b4b0d3255bfef95601890afd80709", "scrape": {"complete": 10, "incomplete": 0, "downloaded": 32}}
+    ```
+
+  If an info hash is not being tracked, the value of its "scrape" field will be
+  `null`.
+
 - `-t <INT>`, `--timeout <INT>` — Wait at most `<INT>` seconds for the tracker
   to respond to our scrape request [default: 30]
 
