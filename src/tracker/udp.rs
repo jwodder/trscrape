@@ -26,9 +26,10 @@ pub(crate) struct UdpTracker(UdpUrl);
 impl UdpTracker {
     #[tracing::instrument(name = "scrape-udp", skip_all, fields(tracker = %self.0))]
     pub(crate) async fn scrape(&self, hashes: &[InfoHash]) -> Result<ScrapeMap, TrackerError> {
-        let socket = ConnectedUdpSocket::connect(&self.0.host, self.0.port).await?;
-        let mut session = UdpTrackerSession::new(socket);
-        session.scrape(hashes).await
+        UdpTrackerSession::new(&self.0.host, self.0.port)
+            .await?
+            .scrape(hashes)
+            .await
     }
 }
 
@@ -93,129 +94,14 @@ impl TryFrom<Url> for UdpUrl {
     }
 }
 
+#[derive(Debug)]
 struct UdpTrackerSession {
-    socket: ConnectedUdpSocket,
-    conn: Option<Connection>,
+    socket: UdpSocket,
+    conn: Option<ConnectionInfo>,
 }
 
 impl UdpTrackerSession {
-    fn new(socket: ConnectedUdpSocket) -> Self {
-        UdpTrackerSession { socket, conn: None }
-    }
-
-    async fn scrape(&mut self, hashes: &[InfoHash]) -> Result<ScrapeMap, TrackerError> {
-        loop {
-            let conn = self.get_connection().await?;
-            let transaction_id = self.make_transaction_id();
-            let msg = Bytes::from(UdpScrapeRequest {
-                connection_id: conn.id,
-                transaction_id,
-                info_hashes: hashes,
-            });
-            let resp = match timeout_at(conn.expiration, self.chat(msg)).await {
-                Ok(Ok(buf)) => {
-                    Response::<UdpScrapeResponse>::from_bytes(buf, UdpScrapeResponse::try_from)?
-                        .ok()?
-                }
-                Ok(Err(e)) => return Err(e.into()),
-                Err(_) => {
-                    tracing::info!("Connection to tracker timed out; restarting");
-                    self.reset_connection();
-                    continue;
-                }
-            };
-            if resp.transaction_id != transaction_id {
-                return Err(UdpTrackerError::XactionMismatch {
-                    expected: transaction_id,
-                    got: resp.transaction_id,
-                }
-                .into());
-            }
-            if hashes.len() != resp.scrapes.len() {
-                return Err(UdpTrackerError::ScrapeLenMismatch {
-                    expected: hashes.len(),
-                    got: resp.scrapes.len(),
-                }
-                .into());
-            } else {
-                return Ok(std::iter::zip(hashes.to_vec(), resp.scrapes).collect());
-            }
-        }
-    }
-
-    async fn get_connection(&mut self) -> Result<Connection, TrackerError> {
-        if let Some(c) = self.conn {
-            if Instant::now() < c.expiration {
-                return Ok(c);
-            } else {
-                tracing::info!("Connection to tracker expired; will reconnect");
-            }
-        }
-        let conn = self.connect().await?;
-        self.conn = Some(conn);
-        Ok(conn)
-    }
-
-    fn reset_connection(&mut self) {
-        self.conn = None;
-    }
-
-    async fn connect(&self) -> Result<Connection, TrackerError> {
-        tracing::info!("Sending connection request to tracker");
-        let transaction_id = self.make_transaction_id();
-        let msg = Bytes::from(UdpConnectionRequest { transaction_id });
-        let raw_resp = self.chat(msg).await?;
-        // TODO: Should communication be retried on parse errors and mismatched
-        // transaction IDs?
-        let resp = Response::<UdpConnectionResponse>::from_bytes(raw_resp, |buf| {
-            UdpConnectionResponse::try_from(buf)
-        })?
-        .ok()?;
-        if resp.transaction_id != transaction_id {
-            return Err(UdpTrackerError::XactionMismatch {
-                expected: transaction_id,
-                got: resp.transaction_id,
-            }
-            .into());
-        }
-        tracing::info!("Connected to tracker");
-        let expiration = Instant::now() + Duration::from_secs(60);
-        Ok(Connection {
-            id: resp.connection_id,
-            expiration,
-        })
-    }
-
-    async fn chat(&self, msg: Bytes) -> Result<Bytes, UdpTrackerError> {
-        let mut n = 0;
-        loop {
-            self.socket.send(&msg).await?;
-            let maxtime = Duration::from_secs(15 << n);
-            if let Ok(r) = timeout(maxtime, self.socket.recv()).await {
-                return r;
-            } else {
-                tracing::info!("Tracker did not reply in time; resending message");
-                if n < 8 {
-                    // TODO: Should this count remember timeouts from previous
-                    // connections & connection attempts?
-                    n += 1;
-                }
-                continue;
-            }
-        }
-    }
-
-    fn make_transaction_id(&self) -> u32 {
-        random()
-    }
-}
-
-struct ConnectedUdpSocket {
-    inner: UdpSocket,
-}
-
-impl ConnectedUdpSocket {
-    async fn connect(host: &str, port: u16) -> Result<ConnectedUdpSocket, UdpTrackerError> {
+    async fn new(host: &str, port: u16) -> Result<Self, UdpTrackerError> {
         let Some(addr) = lookup_host((host, port))
             .await
             .map_err(UdpTrackerError::Lookup)?
@@ -240,17 +126,128 @@ impl ConnectedUdpSocket {
             .connect(addr)
             .await
             .map_err(UdpTrackerError::Connect)?;
-        Ok(ConnectedUdpSocket { inner: socket })
+        Ok(UdpTrackerSession { socket, conn: None })
+    }
+
+    async fn scrape(&mut self, hashes: &[InfoHash]) -> Result<ScrapeMap, TrackerError> {
+        loop {
+            let conn = self.get_connection().await?;
+            let transaction_id = self.make_transaction_id();
+            tracing::info!("Sending scrape request to tracker");
+            let msg = Bytes::from(UdpScrapeRequest {
+                connection_id: conn.id,
+                transaction_id,
+                info_hashes: hashes,
+            });
+            match timeout_at(conn.expiration, self.chat(msg)).await {
+                Ok(Ok(buf)) => {
+                    tracing::info!("Received scrape response from tracker");
+                    let resp = Response::<UdpScrapeResponse>::from_bytes(
+                        buf,
+                        UdpScrapeResponse::try_from,
+                    )?
+                    .ok()?;
+                    if resp.transaction_id != transaction_id {
+                        return Err(UdpTrackerError::XactionMismatch {
+                            expected: transaction_id,
+                            got: resp.transaction_id,
+                        }
+                        .into());
+                    } else if hashes.len() != resp.scrapes.len() {
+                        return Err(UdpTrackerError::ScrapeLenMismatch {
+                            expected: hashes.len(),
+                            got: resp.scrapes.len(),
+                        }
+                        .into());
+                    } else {
+                        return Ok(std::iter::zip(hashes.to_vec(), resp.scrapes).collect());
+                    }
+                }
+                Ok(Err(e)) => return Err(e.into()),
+                Err(_) => {
+                    tracing::info!("Connection to tracker timed out; restarting");
+                    self.reset_connection();
+                    continue;
+                }
+            }
+        }
+    }
+
+    async fn get_connection(&mut self) -> Result<ConnectionInfo, TrackerError> {
+        if let Some(c) = self.conn {
+            if Instant::now() < c.expiration {
+                return Ok(c);
+            } else {
+                tracing::info!("Connection to tracker expired; will reconnect");
+            }
+        }
+        let conn = self.connect().await?;
+        self.conn = Some(conn);
+        Ok(conn)
+    }
+
+    fn reset_connection(&mut self) {
+        self.conn = None;
+    }
+
+    async fn connect(&self) -> Result<ConnectionInfo, TrackerError> {
+        tracing::info!("Sending connection request to tracker");
+        let transaction_id = self.make_transaction_id();
+        let msg = Bytes::from(UdpConnectionRequest { transaction_id });
+        let raw_resp = self.chat(msg).await?;
+        // TODO: Should communication be retried on parse errors and mismatched
+        // transaction IDs?
+        let resp = Response::<UdpConnectionResponse>::from_bytes(
+            raw_resp,
+            UdpConnectionResponse::try_from,
+        )?
+        .ok()?;
+        if resp.transaction_id != transaction_id {
+            return Err(UdpTrackerError::XactionMismatch {
+                expected: transaction_id,
+                got: resp.transaction_id,
+            }
+            .into());
+        }
+        tracing::info!("Connected to tracker");
+        let expiration = Instant::now() + Duration::from_secs(60);
+        Ok(ConnectionInfo {
+            id: resp.connection_id,
+            expiration,
+        })
+    }
+
+    async fn chat(&self, msg: Bytes) -> Result<Bytes, UdpTrackerError> {
+        let mut n = 0;
+        loop {
+            self.send(&msg).await?;
+            let maxtime = Duration::from_secs(15 << n);
+            if let Ok(r) = timeout(maxtime, self.recv()).await {
+                return r;
+            } else {
+                tracing::info!("Tracker did not reply in time; resending message");
+                if n < 8 {
+                    // TODO: This count should remember timeouts from previous
+                    // connections & connection attempts
+                    n += 1;
+                }
+                continue;
+            }
+        }
+    }
+
+    fn make_transaction_id(&self) -> u32 {
+        random()
     }
 
     async fn send(&self, msg: &Bytes) -> Result<(), UdpTrackerError> {
-        self.inner.send(msg).await.map_err(UdpTrackerError::Send)?;
+        self.socket.send(msg).await.map_err(UdpTrackerError::Send)?;
         Ok(())
     }
 
     async fn recv(&self) -> Result<Bytes, UdpTrackerError> {
         let mut buf = BytesMut::with_capacity(UDP_PACKET_LEN);
-        self.inner
+        self.socket
             .recv_buf(&mut buf)
             .await
             .map_err(UdpTrackerError::Recv)?;
@@ -260,7 +257,7 @@ impl ConnectedUdpSocket {
 
 // UDP tracker pseudo-connection (BEP 15)
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-struct Connection {
+struct ConnectionInfo {
     id: u64,
     expiration: Instant,
 }
