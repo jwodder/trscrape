@@ -19,13 +19,16 @@ async fn main() -> anyhow::Result<()> {
     let Arguments { tracker, hashes } = Arguments::parse();
     if !hashes.is_empty() {
         let mut scrapemap = tracker.scrape(&hashes).await?;
+        let mut first = true;
         for ih in hashes {
+            if !std::mem::replace(&mut first, false) {
+                println!();
+            }
             if let Some(s) = scrapemap.remove(&ih) {
                 println!("{ih}:");
                 println!("  Complete/Seeders: {}", s.complete);
                 println!("  Incomplete/Leechers: {}", s.incomplete);
                 println!("  Downloaded: {}", s.downloaded);
-                println!();
             } else {
                 println!("{ih}: --- not tracked ---");
             }
