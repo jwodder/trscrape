@@ -168,3 +168,66 @@ pub(crate) enum HttpTrackerError {
     #[error("failed to parse HTTP tracker response")]
     ParseResponse(#[source] UnbencodeError),
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bytes::{BufMut, BytesMut};
+
+    #[test]
+    fn parse_scrape_response() {
+        let mut buf = BytesMut::new();
+        buf.put(b"d5:filesd".as_slice());
+        buf.put(
+            b"20:\x28\xc5\x51\x96\xf5\x77\x53\xc4\x0a\xce\xb6\xfb\x58\x61\x7e\x69\x95\xa7\xed\xdb"
+                .as_slice(),
+        );
+        buf.put(b"d8:completei10e10:downloadedi32e10:incompletei0ee".as_slice());
+        buf.put(
+            b"20:\xda\x39\xa3\xee\x5e\x6b\x4b\x0d\x32\x55\xbf\xef\x95\x60\x18\x90\xaf\xd8\x07\x09"
+                .as_slice(),
+        );
+        buf.put(b"d8:completei105e10:downloadedi1337e10:incompletei42ee".as_slice());
+        buf.put(b"ee".as_slice());
+        let res = decode_bencode::<HttpScrapeResponse>(&buf)
+            .unwrap()
+            .result()
+            .unwrap();
+        assert_eq!(
+            res,
+            HashMap::from([
+                (
+                    "28c55196f57753c40aceb6fb58617e6995a7eddb"
+                        .parse::<InfoHash>()
+                        .unwrap(),
+                    Scrape {
+                        complete: 10,
+                        incomplete: 0,
+                        downloaded: 32
+                    },
+                ),
+                (
+                    "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+                        .parse::<InfoHash>()
+                        .unwrap(),
+                    Scrape {
+                        complete: 105,
+                        incomplete: 42,
+                        downloaded: 1337
+                    },
+                ),
+            ])
+        );
+    }
+
+    #[test]
+    fn parse_scrape_failure_response() {
+        let mut buf = BytesMut::new();
+        buf.put(b"d14:failure reason11:Out of bitse".as_slice());
+        let res = decode_bencode::<HttpScrapeResponse>(&buf).unwrap();
+        assert_eq!(
+            res,
+            HttpScrapeResponse::Failure(String::from("Out of bits"))
+        );
+    }
+}
