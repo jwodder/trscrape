@@ -33,12 +33,6 @@ impl UdpTracker {
     }
 }
 
-impl fmt::Display for UdpTracker {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
 impl TryFrom<Url> for UdpTracker {
     type Error = TrackerUrlError;
 
